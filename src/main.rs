@@ -19,8 +19,8 @@ unsafe fn before_main() {
 async fn main(_spawner: Spawner) {
     info!("Program start");
     let p = embassy_rp::init(Default::default());
-    let mut led = Output::new(p.PIN_25, Level::Low);
-
+    let mut led = Output::new(p.PIN_22, Level::Low);
+    
     loop {
         info!("led on!");
         led.set_high();
