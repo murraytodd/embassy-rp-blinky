@@ -3,9 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::adc::{Adc, Channel, Config as AdcConfig, InterruptHandler as AdcInterruptHandler};
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio;
-use embassy_rp::i2c::{Config, I2c, InterruptHandler};
+use embassy_rp::gpio::{self, Pull};
+use embassy_rp::i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler};
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Timer};
 use gpio::{Level, Output};
@@ -56,7 +57,8 @@ fn chip_f(adc_reading: u16) -> f32 {
 }
 
 bind_interrupts!(struct Irqs {
-    I2C0_IRQ => InterruptHandler<I2C0>;
+    I2C0_IRQ => I2cInterruptHandler<I2C0>;
+    ADC_IRQ_FIFO => AdcInterruptHandler;
 });
 
 #[cortex_m_rt::pre_init]
@@ -69,14 +71,14 @@ unsafe fn before_main() {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     info!("Program start");
-    let p = embassy_rp::init(Default::default());
+    let mut p = embassy_rp::init(Default::default());
     let mut led = Output::new(p.PIN_22, Level::Low);
 
     // I2C Setup
     info!("Starting I2C Setup");
     let sda = p.PIN_16;
     let scl = p.PIN_17;
-    let mut i2c_config = Config::default();
+    let mut i2c_config = I2cConfig::default();
     i2c_config.frequency = 400_000;
     let i2c = I2c::new_async(p.I2C0, scl, sda, Irqs, i2c_config);
     info!("I2C Initialized");
@@ -87,6 +89,12 @@ async fn main(_spawner: Spawner) {
     let mut mcp_9808_conf = mcp9808.read_configuration().unwrap();
     mcp_9808_conf.set_shutdown_mode(ShutdownMode::Continuous);
 
+    // ADC Setup
+
+    let mut adc = Adc::new(p.ADC, Irqs, AdcConfig::default());
+    let mut temp_channel = Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR);
+    let mut adc_channel_pin26 = Channel::new_pin(&mut p.PIN_26, Pull::None); // TODO try up, down, none
+
     loop {
         info!("led on!");
         led.set_high();
@@ -96,11 +104,19 @@ async fn main(_spawner: Spawner) {
         led.set_low();
         Timer::after(Duration::from_secs(1)).await;
 
+        let chip_voltage_24bit: u16 = adc.blocking_read(&mut temp_channel).unwrap();
+        let tmp36_voltage_24bit: u16 = adc.blocking_read(&mut adc_channel_pin26).unwrap();
+
         let mcp9808_reading_c: f32 = mcp9808
             .read_temperature()
             .unwrap()
             .get_celsius(ResolutionVal::Deg_0_0625C);
 
-        info!("Temp readings:  MCP9808: {}°F", c_to_f(mcp9808_reading_c));
+        info!(
+            "Temp readings:  MCP9808: {}°F, TMP36: {}°F, OnChip: {}°F",
+            c_to_f(mcp9808_reading_c),
+            chip_f(chip_voltage_24bit),
+            tmp36_f(tmp36_voltage_24bit)
+        );
     }
 }
