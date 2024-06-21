@@ -93,7 +93,7 @@ async fn main(_spawner: Spawner) {
 
     let mut adc = Adc::new(p.ADC, Irqs, AdcConfig::default());
     let mut temp_channel = Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR);
-    let mut adc_channel_pin26 = Channel::new_pin(&mut p.PIN_26, Pull::None); // TODO try up, down, none
+    let mut adc_channel_pin26 = Channel::new_pin(&mut p.PIN_26, Pull::None);
 
     loop {
         info!("led on!");
@@ -104,8 +104,8 @@ async fn main(_spawner: Spawner) {
         led.set_low();
         Timer::after(Duration::from_secs(1)).await;
 
-        let chip_voltage_24bit: u16 = adc.blocking_read(&mut temp_channel).unwrap();
-        let tmp36_voltage_24bit: u16 = adc.blocking_read(&mut adc_channel_pin26).unwrap();
+        let chip_voltage_24bit: u16 = adc.read(&mut temp_channel).await.unwrap();
+        let tmp36_voltage_24bit: u16 = adc.read(&mut adc_channel_pin26).await.unwrap();
 
         let mcp9808_reading_c: f32 = mcp9808
             .read_temperature()
