@@ -1,0 +1,20 @@
+# Step-by-step journey building a multifaceted starter app on a Raspberry Pi Pico (and W)
+
+## Background
+
+For the series of blog articles mentioned below, I created two Rust projects for my Raspberry Pi Pico W&mdash;
+the first one derived from the [rp2040-project-template](https://github.com/rp-rs/rp2040-project-template) and 
+including the [rp-pico BSP](https://crates.io/crates/rp-pico) and then this one derived from the Embassy project
+and specifically the [embassy-rp-quickstart Template](https://github.com/9names/embassy-rp-quickstart).
+
+By the way, if this looks spartan, it's because the blog articles' work is being kept in different branche with various tags. Check out the sensor branch for more meat.
+
+## Murray's [Rust Embedded blog series](https://murraytodd.medium.com/list/murrays-raspberry-pi-pico-w-embedded-rust-series-fac1064d4d03) on [Medium.com](https://medium.com/@murraytodd)
+
+My goal has been to document the journey I’ve been taking in exploring embedded development in Rust based on my Raspberry Pi Pico W board. My initial successes depended a lot of the prior work of other people who, like me, wanted to help others get started on their own journeys. There were many places where a blog was helpful, but I had to make some changes to the process because the ecosystem had changed. I soon realized that I might be able to help some people out by chronicling my own journey, pointing out my own stumbling blocks and trying to provide my own perspectives to help people who are new to Rust, to embedded programming, or both.
+
+1. [Learning Rust with Embedded Programming on RP2040](https://murraytodd.medium.com/learning-rust-with-embedded-programming-on-rp2040-e784389d2d3d) - This article starts with some background and motivation behind why I'm writing this series. It starts with why I've started my own journey learning Rust and also digs into why on Earth I would choose the "embedded" world (something fairly complex on its own!) as a starting point for my journey.
+2. [Rust Embedded Frameworks, Hardware, and Setup](https://murraytodd.medium.com/rust-embedded-frameworks-hardware-and-setup-0ae4084ebf2d) - In this blog, we disambiguate some of the Crates, starting hardware, and dev environment configuration.
+3. [Rust Dev Setup &amp; Embedded Terminology](https://murraytodd.medium.com/rust-dev-setup-embedded-terminology-701d6108ad1b) - There are some microcontroller terms and concepts like “GPIO and ADC” that I’ll be talking about in this series that a typical software development might not have encountered before. I think a lot of these are kind of cool and fun, so I thought I would start with these before getting into the more tedious stuff. Also, it’s time to start setting up your dev environment. Rather than trying to recreate all the useful tutorials out there, I’m going to point out where to go so you can make sure all the tools and libraries are installed so we are ready to dive into our first “blinky” application.
+4. [Our First Rust "Blinky" Program on Raspberry Pi Pico W](https://murraytodd.medium.com/our-first-rust-blinky-program-on-raspberry-pi-pico-w-376211f1074d) - Here we wire up our Pico and execute the embedded version of “Hello World”, first via rp2040-hal and then using Embassy. But first, we have to wire up our hardware! I will show the steps to do this for (a) using a second Raspberry Pi Pico as the debug controller and (b) using the more convenient Raspberry Pi Debug Probe.
+5. [Using Rust Embedded to capture sensor data](https://murraytodd.medium.com/using-rust-embedded-to-capture-sensor-data-37db1f726d5c) - We will read sensor information both digitally via an I2C channel and via analog readings from the specialized ADC pins of a Raspberry Pi Pico. We’ll write our sample programs based both on the pico-rp BSD library and the newer async Embassy library to compare and contrast approaches.
