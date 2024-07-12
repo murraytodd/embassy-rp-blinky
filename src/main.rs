@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
 
-use core::str::FromStr;
+use core::str::{from_utf8, FromStr};
 use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::{Config as NetConfig, DhcpConfig, Stack, StackResources};
+use embassy_net::tcp::TcpSocket;
+use embassy_net::udp::{PacketMetadata, UdpSocket};
+use embassy_net::{Config as NetConfig, DhcpConfig, IpEndpoint, Stack, StackResources};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
@@ -84,6 +86,7 @@ async fn main(spawner: Spawner) {
     let wifi_password = env!("WIFI_PASSWORD");
     const SERVER_NAME: &str = "pi2b";
     const CLIENT_NAME: &str = "picow";
+    const COMMS_PORT: u16 = 9932;
 
     let mut dhcp_config = DhcpConfig::default();
     dhcp_config.hostname = Some(heapless::String::from_str(CLIENT_NAME).unwrap());
@@ -133,15 +136,59 @@ async fn main(spawner: Spawner) {
         SERVER_NAME, dest
     );
 
+    let mut rx_buffer = [0; 1024];
+    let mut tx_buffer = [0; 1024];
+    let mut msg_buffer = [0; 128];
+
+    let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
+    socket
+        .connect(IpEndpoint::new(dest, COMMS_PORT))
+        .await
+        .unwrap();
+
+    let tx_size = socket.write("test".as_bytes()).await.unwrap();
+    info!("Wrote {} byes to the server", tx_size);
+    let rx_size = socket.read(&mut msg_buffer).await.unwrap();
+    let response = from_utf8(&msg_buffer[..rx_size]).unwrap();
+    info!("Server replied with {}", response);
+
+    socket.close();
+
+    let mut udp_rx_meta = [PacketMetadata::EMPTY; 16];
+    let mut udp_rx_buffer = [0; 1024];
+    let mut udp_tx_meta = [PacketMetadata::EMPTY; 16];
+    let mut udp_tx_buffer = [0; 1024];
+    // I'll reuse the earlier msg_buffer since we're done with the TCP part
+
+    let mut udp_socket = UdpSocket::new(
+        &stack,
+        &mut udp_rx_meta,
+        &mut udp_rx_buffer,
+        &mut udp_tx_meta,
+        &mut udp_tx_buffer,
+    );
+
+    udp_socket.bind(0).unwrap();
+
     loop {
         info!("external LED on, onboard LED off!");
         led.set_high();
         control.gpio_set(0, false).await;
+        info!("sending UDP packet");
+        udp_socket
+            .send_to("test".as_bytes(), IpEndpoint::new(dest, COMMS_PORT))
+            .await
+            .unwrap();
         Timer::after(Duration::from_secs(1)).await;
 
         info!("external LED off, onboard LED on!");
         led.set_low();
         control.gpio_set(0, true).await;
+        if udp_socket.may_recv() {
+            let (rx_size, from_addr) = udp_socket.recv_from(&mut msg_buffer).await.unwrap();
+            let response = from_utf8(&msg_buffer[..rx_size]).unwrap();
+            info!("Server replied with {} from {}", response, from_addr);
+        }
         Timer::after(Duration::from_secs(1)).await;
     }
 }
