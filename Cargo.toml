@@ -28,14 +28,16 @@ pio = "0.2.1"
 ## USB + logging via USB support (note: embassy-usb-logger requires portable-atomic with critical-section feature enabled)
 embassy-usb-driver = { version = "0.1.0", features = ["defmt"] }
 embassy-usb-logger = { version = "0.2.0" }
-portable-atomic = { version = "1.5.1", features = ["critical-section"] }
+portable-atomic = { version = "1.6.0", features = ["critical-section"] }
 log = "0.4"
 ## network support
-embassy-net = { version = "0.4.0", features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.4.0", features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "dhcpv4-hostname", "medium-ethernet"] }
 ## pico-w support
 cyw43 = { version = "0.1.0", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { version = "0.1.0", features = ["defmt", "overclock"] }
 static_cell = { version = "2" }
+heapless = "0.8.0"
+rand_core = "0.6.4"
 
 mcp9808 = "0.4.0"
 
