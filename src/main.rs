@@ -20,50 +20,10 @@ use embassy_time::{Duration, Instant, Timer};
 use rand_core::RngCore;
 use static_cell::StaticCell;
 
-use mcp9808::reg_conf::{Configuration, ShutdownMode};
-use mcp9808::reg_res::ResolutionVal;
-use mcp9808::reg_temp_generic::*;
-use mcp9808::MCP9808;
-
+use crate::sensor::*;
 use {defmt_rtt as _, panic_probe as _};
 
-const REFERENCE_VOLTAGE: f32 = 3.3;
-const STEPS_12BIT: f32 = 4096 as f32;
-
-/// Basic Celsius-to-Fahrenheit conversion
-fn c_to_f(c: f32) -> f32 {
-    (c * 9.0 / 5.0) + 32.0
-}
-
-/// Convert ADC binary value to a float voltage value.
-///
-/// The ADC has a 12-bit resolution of voltage, meaning that there
-/// are 2^12 or 4096 unique levels from OFF (0V) to FULL (3V). This
-/// function converts the ADC reading into a float measurement in volts.
-fn adc_reading_to_voltage(reading_12bit: u16) -> f32 {
-    (reading_12bit as f32 / STEPS_12BIT) * REFERENCE_VOLTAGE
-}
-
-/// Convert the voltage from a TMP36 sensor into a temperature reading.
-///
-/// The sensor returns 0.5V at 0°C and voltage changes ±0.01V for every
-/// degree Celcius with higher temps resolting in higher voltages within
-/// the range of -40°C to 125°C.
-fn tmp36_f(adc_reading: u16) -> f32 {
-    let voltage: f32 = adc_reading_to_voltage(adc_reading);
-    let c = (100.0 * voltage) - 50.0;
-    c_to_f(c)
-}
-
-/// Convert the voltage from the onboard temp sensor into a temp reading.
-///
-/// From §4.9.5 from the rp2040-datasheet.pdf, the temperature can be
-/// approximated as T = 27 - (ADC_voltage - 0.706) / 0.001721.
-fn chip_f(adc_reading: u16) -> f32 {
-    let voltage: f32 = adc_reading_to_voltage(adc_reading);
-    let c: f32 = 27.0 - ((voltage - 0.706) / 0.001721);
-    c_to_f(c)
-}
+pub mod sensor;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
@@ -106,14 +66,12 @@ async fn main(spawner: Spawner) {
     let scl = p.PIN_17;
     let mut i2c_config = I2cConfig::default();
     i2c_config.frequency = 400_000;
-    let i2c = I2c::new_async(p.I2C0, scl, sda, Irqs, i2c_config);
+    let i2c: I2c<I2C0, embassy_rp::i2c::Async> = I2c::new_async(p.I2C0, scl, sda, Irqs, i2c_config);
     info!("I2C Initialized");
 
     // Setup MCP9808 Temperature Sensor
 
-    let mut mcp9808 = MCP9808::new(i2c);
-    let mut mcp_9808_conf = mcp9808.read_configuration().unwrap();
-    mcp_9808_conf.set_shutdown_mode(ShutdownMode::Continuous);
+    let mut mcp9808 = new_mcp9808(i2c);
 
     // ADC Setup
 
@@ -248,14 +206,11 @@ async fn main(spawner: Spawner) {
         let chip_voltage_24bit: u16 = adc.read(&mut temp_channel).await.unwrap();
         let tmp36_voltage_24bit: u16 = adc.read(&mut adc_channel_pin26).await.unwrap();
 
-        let mcp9808_reading_c: f32 = mcp9808
-            .read_temperature()
-            .unwrap()
-            .get_celsius(ResolutionVal::Deg_0_0625C);
+        let mcp9808_reading: TempReading = read_mcp9808(&mut mcp9808).unwrap();
 
         info!(
             "Temp readings:  MCP9808: {}°F, TMP36: {}°F, OnChip: {}°F",
-            c_to_f(mcp9808_reading_c),
+            mcp9808_reading.get_fahrenheit(),
             chip_f(chip_voltage_24bit),
             tmp36_f(tmp36_voltage_24bit)
         );
