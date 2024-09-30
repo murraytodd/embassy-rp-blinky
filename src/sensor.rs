@@ -95,7 +95,7 @@ pub fn format<const N: usize, T: IntoIterator<Item = TempReading>>(
     s.push('{')?;
 
     for r in readings {
-        write!(s, " {s} : {t:.*},", 2, s = r.sensor, t = r.temp).expect(
+        write!(s, " {s} : {t:.*},", 2, s = r.sensor, t = r.get_fahrenheit()).expect(
             "Couldn't create a JSON of the readings. Check that the string length was big enough.",
         );
     }

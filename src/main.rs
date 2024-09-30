@@ -3,6 +3,7 @@
 
 use core::str::{from_utf8, FromStr};
 use cyw43_pio::PioSpi;
+use defmt::panic;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
@@ -13,7 +14,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output, Pull};
 use embassy_rp::i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler};
-use embassy_rp::peripherals::{DMA_CH0, I2C0, PIN_23, PIN_25, PIO0};
+use embassy_rp::peripherals::{I2C0, PIO0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_time::{Duration, Instant, Timer};
 
@@ -120,11 +121,22 @@ async fn main(spawner: Spawner) {
     info!("Hardware configured. MAC Address is {}", mac_addr);
 
     unwrap!(spawner.spawn(networking::net_task(stack))); // Start networking services thread
-    info!(
-        "About to connect to '{}' with pw '{}'",
-        wifi_ssid, wifi_password
-    );
-    control.join_wpa2(wifi_ssid, wifi_password).await.unwrap();
+
+    // I ran into intermittent wifi join errors, so I'm retrying a few times before panicing.
+    // Need to clean this up
+    for attempt in 1..=3 {
+        match control.join_wpa2(wifi_ssid, wifi_password).await {
+            Ok(_) => break,
+            Err(_) if (attempt <= 3) => {
+                Timer::after_millis(1000).await; // let's throw in a one-second delay and try again
+                continue;
+            }
+            Err(e) => panic!(
+                "Could not join the WIFI network after 3 seconds. {}",
+                e.status
+            ),
+        }
+    }
 
     let start = Instant::now().as_millis();
     loop {
@@ -223,7 +235,7 @@ async fn main(spawner: Spawner) {
             .expect("Couldn't format the readings into a JSON. Maybe the heapless string wasn't big enough?");
 
         // info!(
-        //     "Temp readings:  MCP9808: {}°F, TMP36: {}°F, OnChip: {}°F",
+        //     "Temp readings:  MCP9808: {}°F, OnChip: {}°F, TMP36: {}°F",
         //     mcp9808_reading.unwrap().get_fahrenheit(),
         //     chip_reading.unwrap().get_fahrenheit(),
         //     tmp36_reading.unwrap().get_fahrenheit()
