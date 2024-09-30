@@ -17,13 +17,18 @@ use embassy_rp::peripherals::{DMA_CH0, I2C0, PIN_23, PIN_25, PIO0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_time::{Duration, Instant, Timer};
 
+use heapless::String;
+
 use rand_core::RngCore;
 use static_cell::StaticCell;
 
+use crate::error::Error;
 use crate::sensor::*;
 use {defmt_rtt as _, panic_probe as _};
 
-pub mod sensor;
+mod error;
+pub(crate) mod networking;
+mod sensor;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
@@ -36,22 +41,6 @@ unsafe fn before_main() {
     // Soft-reset doesn't clear spinlocks. Clear the one used by critical-section
     // before we hit main to avoid deadlocks when using a debugger
     embassy_rp::pac::SIO.spinlock(31).write_value(1);
-}
-
-#[embassy_executor::task]
-async fn wifi_task(
-    runner: cyw43::Runner<
-        'static,
-        Output<'static, PIN_23>,
-        PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
-    >,
-) -> ! {
-    runner.run().await
-}
-
-#[embassy_executor::task]
-async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
-    stack.run().await
 }
 
 #[embassy_executor::main]
@@ -99,7 +88,7 @@ async fn main(spawner: Spawner) {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    unwrap!(spawner.spawn(networking::wifi_task(runner)));
 
     control.init(clm).await;
     control
@@ -130,8 +119,11 @@ async fn main(spawner: Spawner) {
     let mac_addr = stack.hardware_address();
     info!("Hardware configured. MAC Address is {}", mac_addr);
 
-    unwrap!(spawner.spawn(net_task(stack))); // Start networking services thread
-
+    unwrap!(spawner.spawn(networking::net_task(stack))); // Start networking services thread
+    info!(
+        "About to connect to '{}' with pw '{}'",
+        wifi_ssid, wifi_password
+    );
     control.join_wpa2(wifi_ssid, wifi_password).await.unwrap();
 
     let start = Instant::now().as_millis();
@@ -203,17 +195,39 @@ async fn main(spawner: Spawner) {
         control.gpio_set(0, false).await;
 
         // Time to take our readings...
-        let chip_voltage_24bit: u16 = adc.read(&mut temp_channel).await.unwrap();
-        let tmp36_voltage_24bit: u16 = adc.read(&mut adc_channel_pin26).await.unwrap();
 
-        let mcp9808_reading: TempReading = read_mcp9808(&mut mcp9808).unwrap();
+        let chip_reading = adc
+            .read(&mut temp_channel)
+            .await
+            .map(TempReading::new_from_internal)
+            .map_err(Error::from);
 
-        info!(
-            "Temp readings:  MCP9808: {}°F, TMP36: {}°F, OnChip: {}°F",
-            mcp9808_reading.get_fahrenheit(),
-            chip_f(chip_voltage_24bit),
-            tmp36_f(tmp36_voltage_24bit)
-        );
+        let tmp36_reading = adc
+            .read(&mut adc_channel_pin26)
+            .await
+            .map(TempReading::new_from_tmp36)
+            .map_err(Error::from);
+
+        let mcp9808_reading = read_mcp9808(&mut mcp9808).map_err(Error::from);
+
+        let mut json: String<80> = String::new();
+        let readings: [Result<TempReading, Error<_>>; 3] =
+            [chip_reading, tmp36_reading, mcp9808_reading];
+        for r in &readings {
+            match r {
+                Ok(t) => info!("Read {} at {} °F", t.sensor, t.temp),
+                Err(_) => error!("Sensor reading error"),
+            }
+        }
+        format(&mut json, readings.into_iter().filter_map(|r| r.ok()))
+            .expect("Couldn't format the readings into a JSON. Maybe the heapless string wasn't big enough?");
+
+        // info!(
+        //     "Temp readings:  MCP9808: {}°F, TMP36: {}°F, OnChip: {}°F",
+        //     mcp9808_reading.unwrap().get_fahrenheit(),
+        //     chip_reading.unwrap().get_fahrenheit(),
+        //     tmp36_reading.unwrap().get_fahrenheit()
+        // );
 
         info!("sending UDP packet");
         udp_socket
