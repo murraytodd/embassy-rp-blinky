@@ -113,7 +113,7 @@ async fn main(_spawner: Spawner) {
             .get_celsius(ResolutionVal::Deg_0_0625C);
 
         info!(
-            "Temp readings:  MCP9808: {}°F, TMP36: {}°F, OnChip: {}°F",
+            "Temp readings:  MCP9808: {}°F, OnChip: {}°F, TMP36: {}°F",
             c_to_f(mcp9808_reading_c),
             chip_f(chip_voltage_24bit),
             tmp36_f(tmp36_voltage_24bit)
