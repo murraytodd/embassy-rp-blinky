@@ -1,7 +1,6 @@
 use embassy_rp::adc::Error as ADCError;
 use mcp9808::error::Error as MCP9808Error;
 
-#[derive(Debug)]
 pub enum Error<E> {
     MCPSensorError(MCP9808Error<E>),
     ADCSensorError(ADCError),
