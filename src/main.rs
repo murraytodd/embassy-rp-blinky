@@ -227,23 +227,16 @@ async fn main(spawner: Spawner) {
             [chip_reading, tmp36_reading, mcp9808_reading];
         for r in &readings {
             match r {
-                Ok(t) => info!("Read {} at {} °F", t.sensor, t.temp),
+                Ok(t) => info!("Read {} at {} °F - {}", t.sensor, t.get_fahrenheit(), t),
                 Err(_) => error!("Sensor reading error"),
             }
         }
         format(&mut json, readings.into_iter().filter_map(|r| r.ok()))
             .expect("Couldn't format the readings into a JSON. Maybe the heapless string wasn't big enough?");
 
-        // info!(
-        //     "Temp readings:  MCP9808: {}°F, OnChip: {}°F, TMP36: {}°F",
-        //     mcp9808_reading.unwrap().get_fahrenheit(),
-        //     chip_reading.unwrap().get_fahrenheit(),
-        //     tmp36_reading.unwrap().get_fahrenheit()
-        // );
-
         info!("sending UDP packet");
         udp_socket
-            .send_to("test".as_bytes(), IpEndpoint::new(dest, COMMS_PORT))
+            .send_to(json.as_bytes(), IpEndpoint::new(dest, COMMS_PORT))
             .await
             .unwrap();
         Timer::after(Duration::from_secs(1)).await;

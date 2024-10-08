@@ -26,11 +26,13 @@ fn c_to_f(c: f32) -> f32 {
     (c * 9.0 / 5.0) + 32.0
 }
 
+#[derive(defmt::Format)]
 pub enum TemperatureScale {
     C,
     F,
 }
 
+#[derive(defmt::Format)]
 pub struct TempReading {
     pub temp: f32,
     pub scale: TemperatureScale,
