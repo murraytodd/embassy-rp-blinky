@@ -1,3 +1,5 @@
+use crate::error::Error;
+use core::convert::identity;
 use core::fmt::Write;
 use embassy_rp::i2c::{Async, I2c};
 use heapless::String;
@@ -70,39 +72,68 @@ impl TempReading {
             sensor: "On-chip",
         }
     }
+    pub fn read_mcp9808<I: embassy_rp::i2c::Instance>(
+        sensor: &mut MCP9808<I2c<I, Async>>,
+    ) -> Result<TempReading, Error> {
+        sensor
+            .read_temperature()
+            .map(|mcp_reading| TempReading {
+                temp: mcp_reading.get_celsius(ResolutionVal::Deg_0_0625C),
+                scale: TemperatureScale::C,
+                sensor: "MCP9808",
+            })
+            .map_err(Error::from)
+    }
 }
 
-pub fn new_mcp9808<I: embassy_rp::i2c::Instance>(i2c: I2c<I, Async>) -> MCP9808<I2c<I, Async>> {
+pub fn new_mcp9808<I: embassy_rp::i2c::Instance>(
+    i2c: I2c<I, Async>,
+) -> Result<MCP9808<I2c<I, Async>>, Error> {
     let mut mcp9808 = MCP9808::new(i2c);
-    let mut mcp_9808_conf = mcp9808.read_configuration().unwrap();
-    mcp_9808_conf.set_shutdown_mode(ShutdownMode::Continuous);
     mcp9808
+        .read_configuration()
+        .map(|mut c| {
+            c.set_shutdown_mode(ShutdownMode::Continuous);
+            mcp9808
+        })
+        .map_err(Error::from)
 }
 
-pub fn read_mcp9808<I: embassy_rp::i2c::Instance>(
-    sensor: &mut MCP9808<I2c<I, Async>>,
-) -> Result<TempReading, mcp9808::error::Error<embassy_rp::i2c::Error>> {
-    sensor.read_temperature().map(|r| TempReading {
-        temp: r.get_celsius(ResolutionVal::Deg_0_0625C),
-        scale: TemperatureScale::C,
-        sensor: "MCP9808",
-    })
-}
+// Alternative approach with pattern matching:
+// pub fn new_mcp9808<I: embassy_rp::i2c::Instance>(
+//     i2c: I2c<I, Async>,
+// ) -> Result<MCP9808<I2c<I, Async>>, Error> {
+//     let mut mcp9808 = MCP9808::new(i2c);
+//     match mcp9808.read_configuration() {
+//         Ok(mut config) => {
+//             config.set_shutdown_mode(ShutdownMode::Continuous);
+//             Ok(mcp9808)
+//         }
+//         Err(e) => Err(Error::from(e)),
+//     }
+// }
 
-pub fn format<const N: usize, T: IntoIterator<Item = TempReading>>(
+pub fn format<const N: usize, T: IntoIterator<Item = Result<TempReading, Error>>>(
     s: &mut String<N>,
     readings: T,
-) -> Result<(), ()> {
+) -> Result<(), Error> {
     s.clear();
-    s.push('{')?;
+    s.push('{').map_err(|_| Error::FormattingError)?;
 
-    for r in readings {
-        write!(s, " {s} : {t:.*},", 2, s = r.sensor, t = r.get_fahrenheit()).expect(
-            "Couldn't create a JSON of the readings. Check that the string length was big enough.",
-        );
+    let fmt_success: bool = readings
+        .into_iter()
+        .flatten() // Only take the Ok<TempReading> values
+        .map(|r| {
+            write!(s, " {s} : {t:.*},", 2, s = r.sensor, t = r.get_fahrenheit()).is_ok()
+            // if an error occurred, convert any errors into Option<E>
+        }) // flat_map converts the iterator of readings into an iterator only of the errors.
+        .all(identity); // each success = true, so this assumes all write ops were successes
+
+    let _ = s.pop(); // Drop the trailing comma that we know is at the end, so we can replace with the final "}"
+    let fmt_success = fmt_success && s.push_str(" }").is_ok();
+    if fmt_success {
+        Ok(())
+    } else {
+        Err(Error::FormattingError)
     }
-
-    let _ = s.pop();
-    s.push_str(" }")?;
-    Ok(())
 }

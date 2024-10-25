@@ -31,6 +31,33 @@ mod error;
 pub(crate) mod networking;
 mod sensor;
 
+trait SimpleRef<T, E: Clone> {
+    fn simple_ref(&self) -> Result<&T, E>;
+}
+
+impl<T, E: Clone> SimpleRef<T, E> for Result<T, E> {
+    #[inline]
+    fn simple_ref(&self) -> Result<&T, E> {
+        match *self {
+            Ok(ref t) => Ok(t),
+            Err(ref e) => Err(e.clone()),
+        }
+    }
+}
+
+trait SimpleMut<T, E: Clone> {
+    fn simple_mut(&mut self) -> Result<&mut T, E>;
+}
+
+impl<T, E: Clone> SimpleMut<T, E> for Result<T, E> {
+    fn simple_mut(&mut self) -> Result<&mut T, E> {
+        match self {
+            Ok(ref mut t) => Ok(t),
+            Err(ref e) => Err(e.clone()),
+        }
+    }
+}
+
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     I2C0_IRQ => I2cInterruptHandler<I2C0>;
@@ -220,19 +247,28 @@ async fn main(spawner: Spawner) {
             .map(TempReading::new_from_tmp36)
             .map_err(Error::from);
 
-        let mcp9808_reading = read_mcp9808(&mut mcp9808).map_err(Error::from);
+        // let mcp9808_reading = mcp9808
+        //     .as_mut()
+        //     .map_err(|e| *e)
+        //     .and_then(TempReading::read_mcp9808);
+
+        let mcp9808_reading = mcp9808.simple_mut().and_then(TempReading::read_mcp9808);
 
         let mut json: String<80> = String::new();
-        let readings: [Result<TempReading, Error<_>>; 3] =
-            [chip_reading, tmp36_reading, mcp9808_reading];
+        let readings = [chip_reading, tmp36_reading, mcp9808_reading];
         for r in &readings {
             match r {
                 Ok(t) => info!("Read {} at {} °F - {}", t.sensor, t.get_fahrenheit(), t),
                 Err(_) => error!("Sensor reading error"),
             }
         }
-        format(&mut json, readings.into_iter().filter_map(|r| r.ok()))
-            .expect("Couldn't format the readings into a JSON. Maybe the heapless string wasn't big enough?");
+        let format_ok = format(&mut json, readings.into_iter());
+        if format_ok.is_err() {
+            warn!("Formatting error creating JSON packet. Skipping network activity.");
+            Timer::after(Duration::from_secs(1)).await;
+            continue; // continue the loop taking and debugging sensor readings
+                      // We'll pick this back up when we get to refactoring the network code.
+        }
 
         info!("sending UDP packet");
         udp_socket
